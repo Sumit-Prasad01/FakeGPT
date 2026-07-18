@@ -1,13 +1,15 @@
 import sqlite3
 from pathlib import Path
 from src.config import Settings
+from utils.logger import logger
+from utils.custom_exception import CustomException
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage
 from langgraph.graph import StateGraph, START, MessagesState
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.sqlite import SqliteSaver
-from tools import tools
+from src.tools import tools
 
 
 Path("data").mkdir(exist_ok = True)
@@ -70,46 +72,55 @@ def build_agent(model_name : str):
     """
     Build one LangGraph agent for a selected Gemini model.
     """
+    try:
 
-    selected_model = normalize_model_name(model_name)
+        selected_model = normalize_model_name(model_name)
 
-    # Initialize ChatGoogleGenerativeAI
-    llm = ChatGoogleGenerativeAI(
-        model = selected_model,
-        temperature = 0.3,
-        streaming = True
-    )
+        # Initialize ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model = selected_model,
+            temperature = 0.3,
+            streaming = True
+        )
 
-    llm_with_tools = llm.bind_tools(tools)
+        llm_with_tools = llm.bind_tools(tools)
 
 
-    def chatbot_node(state : MessagesState):
+        def chatbot_node(state : MessagesState):
 
-        messages = [SystemMessage(content = SYSTEM_PROMPT)] + state["messages"]
+            messages = [SystemMessage(content = SYSTEM_PROMPT)] + state["messages"]
 
-        response = llm_with_tools.invoke(messages)
+            response = llm_with_tools.invoke(messages)
 
-        return {
-            "messages" : [response]
-        }
+            return {
+                "messages" : [response]
+            }
+        
+        tool_node = ToolNode(tools)
+
+        workflow = StateGraph(MessagesState)
+
+        workflow.add_node("chatbot", chatbot_node)
+        workflow.add_node("tools", tool_node)
+
+        workflow.add_edge(START, "chatbot")
+        workflow.add_conditional_edges("chatbot", tools_condition)
+        workflow.add_edge("tools", "chatbot")
+
+        conn = sqlite3.connect(
+            "data/langgraph_checkpoints.sqlite",
+            check_same_thread = False
+        )
+
+        checkpointer = SqliteSaver(conn)
+
+        logger.info("Agent built successfully.")
+
+        return workflow.compile(checkpointer = checkpointer)
     
-    tool_node = ToolNode(tools)
-
-    workflow = StateGraph(MessagesState)
-
-    workflow.add_node("chatbot", chatbot_node)
-    workflow.add_node("tools", tool_node)
-
-    workflow.add_edge(START, "chatbot")
-    workflow.add_conditional_edges("chatbot", tools_condition)
-    workflow.add_edge("tools", "chatbot")
-
-    conn = sqlite3.connect(
-        "data/langgraph_checkpoints.sqlite",
-        check_same_thread = False
-    )
-
-    return workflow.compile(checkpointer = checkpointer)
+    except Exception as e:
+        logger.error(f"Error while building agent : {e}")
+        raise CustomException("Failed to building agent : ", e)
     
 
 
@@ -121,11 +132,19 @@ def get_agent(model_name : str | None = None):
     Return cached LangGraph agent for selected model.
     If not created yet, create it once and reuse it.
     """
+    try:
 
-    selected_model = normalize_model_name(model_name)
+        selected_model = normalize_model_name(model_name)
 
-    if selected_model not in _AGENT_CACHE:
-        _AGENT_CACHE[selected_model] = build_agent(selected_model)
+        if selected_model not in _AGENT_CACHE:
+            _AGENT_CACHE[selected_model] = build_agent(selected_model)
 
+        logger.info(f"Putting agent into _AGENT_CACHE with model name : {selected_model}")
+        logger.info("Returning agent.....")
+
+        return _AGENT_CACHE[selected_model]
     
-    return _AGENT_CACHE[selected_model]
+
+    except Exception as e:
+        logger.error(f"Error while return agent and setting up in cache : {e}")
+        raise CustomException("Failed to setup cache and to return agent : ", e)
