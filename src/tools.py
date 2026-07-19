@@ -13,7 +13,7 @@ from utils.logger import logger
 
 CURRENT_THREAD_ID = "default"
 
-def set_current_thread(thread_id : str):
+def set_current_thread_id(thread_id : str):
 
     global CURRENT_THREAD_ID
     CURRENT_THREAD_ID = thread_id
