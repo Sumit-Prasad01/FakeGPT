@@ -5,7 +5,7 @@ import uvicorn
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
 from langchain_core.messages import (
@@ -315,6 +315,11 @@ async def chat_stream(request : Request):
     )
 
 
+@app.get("/script.js", include_in_schema=False)
+async def frontend_script():
+    return FileResponse("templates/script.js", media_type="application/javascript")
+
+
 
 if __name__ == "__main__":
 
@@ -324,3 +329,5 @@ if __name__ == "__main__":
         port = 8080,
         reload = True
     )
+
+
